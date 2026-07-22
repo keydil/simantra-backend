@@ -1,0 +1,108 @@
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
+import { Roles } from '../common/decorators/roles.decorator';
+import { ALLOWED_IMAGE_MIMES, MAX_UPLOAD_BYTES } from '../storage/storage.service';
+import { CreateTenantDto, ListTenantsQueryDto, UpdateTenantDto, UpdateThemeDto } from './dto/tenants.dto';
+import { TenantsService } from './tenants.service';
+
+@Controller('tenants')
+export class TenantsController {
+  constructor(private readonly tenants: TenantsService) {}
+
+  @Roles('superadmin')
+  @Get()
+  list(@Query() query: ListTenantsQueryDto) {
+    return this.tenants.list(query);
+  }
+
+  @Roles('superadmin')
+  @Post()
+  create(@Body() dto: CreateTenantDto) {
+    return this.tenants.create(dto);
+  }
+
+  // TenantScopeGuard: admin otomatis dibatasi tenant sendiri via :tenantId
+  @Roles('superadmin', 'admin')
+  @Get(':tenantId')
+  getById(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
+    return this.tenants.getById(tenantId);
+  }
+
+  @Roles('superadmin')
+  @Patch(':tenantId')
+  update(@Param('tenantId', ParseUUIDPipe) tenantId: string, @Body() dto: UpdateTenantDto) {
+    return this.tenants.update(tenantId, dto);
+  }
+
+  @Roles('superadmin')
+  @Delete(':tenantId')
+  softDelete(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
+    return this.tenants.softDelete(tenantId);
+  }
+
+  /** Ringkasan data yang akan ikut hancur — untuk layar konfirmasi hard delete. */
+  @Roles('superadmin')
+  @Get(':tenantId/purge-preview')
+  purgePreview(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
+    return this.tenants.purgePreview(tenantId);
+  }
+
+  /**
+   * HARD DELETE, tidak bisa dibatalkan (bandingkan dengan @Delete(':tenantId')
+   * di atas yang cuma soft delete). Sengaja diberi path sendiri, BUKAN query
+   * flag seperti `?hard=true`, supaya tidak mungkin terpicu karena salah ketik
+   * parameter — dan supaya terbaca jelas di log akses.
+   *
+   * Tenant wajib sudah nonaktif; validasinya di service.
+   */
+  @Roles('superadmin')
+  @Delete(':tenantId/permanent')
+  purge(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
+    return this.tenants.purge(tenantId);
+  }
+
+  @Roles('superadmin', 'admin')
+  @Get(':tenantId/theme')
+  getTheme(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
+    return this.tenants.getTheme(tenantId);
+  }
+
+  @Roles('superadmin', 'admin')
+  @Patch(':tenantId/theme')
+  updateTheme(@Param('tenantId', ParseUUIDPipe) tenantId: string, @Body() dto: UpdateThemeDto) {
+    return this.tenants.updateTheme(tenantId, dto);
+  }
+
+  @Roles('superadmin', 'admin')
+  @Post(':tenantId/logo')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: MAX_UPLOAD_BYTES },
+    }),
+  )
+  uploadLogo(
+    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('File logo wajib diunggah (field "file")');
+    if (!ALLOWED_IMAGE_MIMES.includes(file.mimetype)) {
+      throw new BadRequestException('Tipe file tidak didukung (hanya JPEG/PNG/WebP)');
+    }
+    return this.tenants.uploadLogo(tenantId, file.buffer, file.mimetype);
+  }
+}
