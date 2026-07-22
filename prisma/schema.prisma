@@ -1,0 +1,287 @@
+// Baseline skema SIMANTRA (§3.2 DESIGN.md) — porting 01-init-schema.sql
+// dari project Supabase, dengan delta:
+//   - TANPA RLS/policy apapun (otorisasi 100% di guard/service NestJS)
+//   - tenant_users: + password_hash, + must_change_password, tenant_id nullable
+//     (superadmin), + legacy_auth_user_id (mapping data Supabase saat cutover,
+//     dihapus setelah migrasi data selesai)
+//   - + refresh_tokens (rotating refresh token, disimpan hashed)
+//   - + guest_book (di Supabase tabelnya ada tapi tak pernah masuk file skema)
+//   - CHECK constraint varchar lama → enum Postgres native
+// Views (active_queues, queue_status_summary) & partial index dibuat via SQL
+// tambahan di file migrasi — Prisma tidak mengelola keduanya dari schema ini.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  superadmin
+  admin
+  operator
+  viewer
+
+  @@map("role")
+}
+
+enum SubscriptionTier {
+  free
+  standard
+  premium
+
+  @@map("subscription_tier")
+}
+
+enum QueueEntryStatus {
+  waiting
+  serving
+  completed
+  no_show
+  cancelled
+
+  @@map("queue_entry_status")
+}
+
+enum AnnouncementType {
+  update
+  warning
+  maintenance
+  info
+
+  @@map("announcement_type")
+}
+
+enum AnnouncementTarget {
+  all
+  specific
+
+  @@map("announcement_target")
+}
+
+model Tenant {
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name             String           @unique @db.VarChar(255)
+  subdomain        String           @unique @db.VarChar(255)
+  description      String?
+  logoUrl          String?          @map("logo_url") @db.VarChar(512)
+  brandColor       String           @default("#3B82F6") @map("brand_color") @db.VarChar(7)
+  isActive         Boolean          @default(true) @map("is_active")
+  subscriptionTier SubscriptionTier @default(standard) @map("subscription_tier")
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  users        TenantUser[]
+  queues        Queue[]
+  queueEntries  QueueEntry[]
+  analytics     AnalyticsDaily[]
+  theme         TenantTheme?
+  guestBook     GuestBookEntry[]
+  visitPurposes VisitPurpose[]
+
+  @@map("tenants")
+}
+
+model TenantUser {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  // Nullable: superadmin tidak terikat satu tenant (temuan produksi, script 13)
+  tenantId           String?   @map("tenant_id") @db.Uuid
+  // Email jadi identitas login global (dulu global-unique via auth.users
+  // Supabase; UNIQUE(tenant_id,email) lama tidak cukup karena login by email)
+  email              String    @unique @db.VarChar(255)
+  passwordHash       String    @map("password_hash")
+  fullName           String?   @map("full_name") @db.VarChar(255)
+  role               Role      @default(operator)
+  isActive           Boolean   @default(true) @map("is_active")
+  // Fix permanen ghost account (UI_UX 3.3 / script 13): user baru wajib
+  // ganti password di login pertama
+  mustChangePassword Boolean   @default(false) @map("must_change_password")
+  // Mapping ke auth.users.id Supabase lama — hanya untuk migrasi data
+  legacyAuthUserId   String?   @map("legacy_auth_user_id") @db.Uuid
+  lastLogin          DateTime? @map("last_login") @db.Timestamptz(6)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant        Tenant?        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  refreshTokens RefreshToken[]
+  announcements Announcement[]
+
+  @@index([tenantId])
+  @@map("tenant_users")
+}
+
+model RefreshToken {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
+  userAgent String?   @map("user_agent") @db.VarChar(512)
+  ip        String?   @db.VarChar(64)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user TenantUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Queue {
+  id                          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                    String   @map("tenant_id") @db.Uuid
+  name                        String   @db.VarChar(255)
+  description                 String?
+  displayName                 String?  @map("display_name") @db.VarChar(255)
+  serviceCode                 String?  @map("service_code") @db.VarChar(50)
+  colorCode                   String   @default("#3B82F6") @map("color_code") @db.VarChar(7)
+  isActive                    Boolean  @default(true) @map("is_active")
+  maxCapacity                 Int      @default(100) @map("max_capacity")
+  estimatedServiceTimeMinutes Int      @default(15) @map("estimated_service_time_minutes")
+  createdAt                   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  entries   QueueEntry[]
+  analytics AnalyticsDaily[]
+
+  @@index([tenantId])
+  @@map("queues")
+}
+
+model QueueEntry {
+  id            String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  queueId       String           @map("queue_id") @db.Uuid
+  tenantId      String           @map("tenant_id") @db.Uuid
+  ticketNumber  String           @map("ticket_number") @db.VarChar(50)
+  customerName  String?          @map("customer_name") @db.VarChar(255)
+  status        QueueEntryStatus @default(waiting)
+  serviceWindow Int?             @map("service_window")
+  priority      Int              @default(0)
+  enteredAt     DateTime         @default(now()) @map("entered_at") @db.Timestamptz(6)
+  startedAt     DateTime?        @map("started_at") @db.Timestamptz(6)
+  completedAt   DateTime?        @map("completed_at") @db.Timestamptz(6)
+  notes         String?
+
+  queue  Queue  @relation(fields: [queueId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([queueId])
+  @@index([tenantId])
+  @@index([status])
+  @@index([enteredAt])
+  @@map("queue_entries")
+}
+
+model Announcement {
+  id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title             String             @db.VarChar(255)
+  description       String
+  announcementType  AnnouncementType   @default(update) @map("announcement_type")
+  targetTenants     AnnouncementTarget @default(all) @map("target_tenants")
+  specificTenantIds String[]           @map("specific_tenant_ids") @db.Uuid
+  isActive          Boolean            @default(true) @map("is_active")
+  priority          Int                @default(0)
+  publishedAt       DateTime           @default(now()) @map("published_at") @db.Timestamptz(6)
+  expiresAt         DateTime?          @map("expires_at") @db.Timestamptz(6)
+  createdBy         String             @map("created_by") @db.Uuid
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  author TenantUser @relation(fields: [createdBy], references: [id])
+
+  @@index([isActive])
+  @@map("announcements")
+}
+
+model AnalyticsDaily {
+  id                        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                  String   @map("tenant_id") @db.Uuid
+  queueId                   String?  @map("queue_id") @db.Uuid
+  date                      DateTime @db.Date
+  totalEntries              Int      @default(0) @map("total_entries")
+  completedEntries          Int      @default(0) @map("completed_entries")
+  noShowEntries             Int      @default(0) @map("no_show_entries")
+  cancelledEntries          Int      @default(0) @map("cancelled_entries")
+  averageServiceTimeMinutes Decimal? @map("average_service_time_minutes") @db.Decimal(10, 2)
+  peakHour                  Int?     @map("peak_hour")
+  peakCount                 Int?     @map("peak_count")
+  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  queue  Queue? @relation(fields: [queueId], references: [id], onDelete: SetNull)
+
+  // Kunci upsert cron agregasi harian (§4.7 DESIGN.md)
+  @@unique([tenantId, queueId, date])
+  @@index([tenantId, date])
+  @@map("analytics_daily")
+}
+
+model TenantTheme {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String   @unique @map("tenant_id") @db.Uuid
+  primaryColor    String   @default("#3B82F6") @map("primary_color") @db.VarChar(7)
+  secondaryColor  String   @default("#1E40AF") @map("secondary_color") @db.VarChar(7)
+  accentColor     String   @default("#10B981") @map("accent_color") @db.VarChar(7)
+  textColor       String   @default("#1F2937") @map("text_color") @db.VarChar(7)
+  backgroundColor String   @default("#FFFFFF") @map("background_color") @db.VarChar(7)
+  logoUrl         String?  @map("logo_url") @db.VarChar(512)
+  faviconUrl      String?  @map("favicon_url") @db.VarChar(512)
+  customCss       String?  @map("custom_css")
+  isCustomTheme   Boolean  @default(false) @map("is_custom_theme")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_themes")
+}
+
+model GuestBookEntry {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  name        String   @db.VarChar(255)
+  institution String   @db.VarChar(255)
+  purpose     String   @db.VarChar(500)
+  phone       String   @db.VarChar(50)
+  photoUrl    String?  @map("photo_url") @db.VarChar(512)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@map("guest_book")
+}
+
+// Kategori "Keperluan Kunjungan" buku tamu — per-tenant (beda tiap instansi:
+// puskesmas ≠ kelurahan ≠ PT). Hanya menyetir opsi chip di form; kolom
+// guest_book.purpose tetap string bebas, BUKAN FK ke sini (entri lama tetap
+// valid). sort_order eksplisit karena urutan chip penting ("Lainnya" terakhir).
+model VisitPurpose {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  label     String   @db.VarChar(255)
+  sortOrder Int      @default(0) @map("sort_order")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("visit_purpose")
+}
+
+// Konfigurasi global sistem — baris tunggal (singleton, id konstan "global").
+// Saat ini hanya menampung flag Mode Maintenance. Service selalu upsert row ini
+// supaya tidak pernah tidak ada.
+model SystemConfig {
+  id                 String   @id @default("global")
+  maintenanceMode    Boolean  @default(false) @map("maintenance_mode")
+  maintenanceMessage String?  @map("maintenance_message")
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("system_config")
+}
