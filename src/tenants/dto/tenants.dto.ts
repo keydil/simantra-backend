@@ -3,10 +3,13 @@ import {
   IsBoolean,
   IsEnum,
   IsIn,
+  IsInt,
   IsOptional,
   IsString,
   Matches,
+  Max,
   MaxLength,
+  Min,
   MinLength,
 } from 'class-validator';
 
@@ -90,6 +93,11 @@ export class UpdateThemeDto {
   @IsOptional() @IsString() @MaxLength(512) favicon_url?: string;
   @IsOptional() @IsString() custom_css?: string;
   @IsOptional() @IsBoolean() is_custom_theme?: boolean;
+}
+
+export class UpdateDisplayConfigDto {
+  @IsOptional() @IsInt() @Min(5) @Max(600) queue_view_seconds?: number;
+  @IsOptional() @IsInt() @Min(5) @Max(600) media_view_seconds?: number;
 }
 
 export class UpdateRunningTextDto {

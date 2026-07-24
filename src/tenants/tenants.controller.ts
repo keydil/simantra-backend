@@ -25,6 +25,7 @@ import {
 import {
   CreateTenantDto,
   ListTenantsQueryDto,
+  UpdateDisplayConfigDto,
   UpdateRunningTextDto,
   UpdateTenantDto,
   UpdateThemeDto,
@@ -151,6 +152,46 @@ export class TenantsController {
   @Delete(':tenantId/video')
   removeVideo(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
     return this.tenants.removeVideo(tenantId);
+  }
+
+  /**
+   * Media Display alternatif: FOTO signage (XOR dengan video). Reuse saveImage
+   * (memoryStorage, 2 MB — kecil, tak perlu diskStorage seperti video). Set foto
+   * meng-clear video di service. Endpoint self-manage admin, sejajar video.
+   */
+  @Roles('superadmin', 'admin')
+  @Post(':tenantId/image')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: MAX_UPLOAD_BYTES },
+    }),
+  )
+  uploadImage(
+    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('File gambar wajib diunggah (field "file")');
+    if (!ALLOWED_IMAGE_MIMES.includes(file.mimetype)) {
+      throw new BadRequestException('Tipe file tidak didukung (hanya JPEG/PNG/WebP)');
+    }
+    return this.tenants.uploadImage(tenantId, file.buffer, file.mimetype);
+  }
+
+  @Roles('superadmin', 'admin')
+  @Delete(':tenantId/image')
+  removeImage(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
+    return this.tenants.removeImage(tenantId);
+  }
+
+  /** Durasi rotasi display (fase antrian vs fase media). Self-manage admin. */
+  @Roles('superadmin', 'admin')
+  @Patch(':tenantId/display-config')
+  updateDisplayConfig(
+    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+    @Body() dto: UpdateDisplayConfigDto,
+  ) {
+    return this.tenants.updateDisplayConfig(tenantId, dto);
   }
 
   /**

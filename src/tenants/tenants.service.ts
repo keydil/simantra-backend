@@ -9,7 +9,13 @@ import { toWireTenant, toWireTheme } from '../common/wire';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { DEFAULT_VISIT_PURPOSES } from '../visit-purposes/visit-purposes.service';
-import { CreateTenantDto, ListTenantsQueryDto, UpdateTenantDto, UpdateThemeDto } from './dto/tenants.dto';
+import {
+  CreateTenantDto,
+  ListTenantsQueryDto,
+  UpdateDisplayConfigDto,
+  UpdateTenantDto,
+  UpdateThemeDto,
+} from './dto/tenants.dto';
 
 @Injectable()
 export class TenantsService {
@@ -207,17 +213,69 @@ export class TenantsService {
 
     const existing = await this.prisma.tenantTheme.findUnique({
       where: { tenantId },
-      select: { videoUrl: true },
+      select: { videoUrl: true, imageUrl: true },
     });
+    // XOR: set video → clear foto (dan hapus file-nya).
     await this.prisma.tenantTheme.upsert({
       where: { tenantId },
-      create: { tenantId, videoUrl: url },
-      update: { videoUrl: url },
+      create: { tenantId, videoUrl: url, imageUrl: null },
+      update: { videoUrl: url, imageUrl: null },
     });
     if (existing?.videoUrl && existing.videoUrl !== url) {
       await this.storage.deleteByUrl(existing.videoUrl);
     }
+    if (existing?.imageUrl) await this.storage.deleteByUrl(existing.imageUrl);
     return { video_url: url };
+  }
+
+  /**
+   * Media Display FOTO (XOR dengan video). File kecil (≤2 MB) via memoryStorage,
+   * jadi buffer langsung. Set foto → clear video (& hapus file video lama).
+   */
+  async uploadImage(tenantId: string, buffer: Buffer, mime: string) {
+    await this.ensureExists(tenantId);
+    const { url } = await this.storage.saveImage(buffer, mime, 'tenant-display');
+    const existing = await this.prisma.tenantTheme.findUnique({
+      where: { tenantId },
+      select: { videoUrl: true, imageUrl: true },
+    });
+    await this.prisma.tenantTheme.upsert({
+      where: { tenantId },
+      create: { tenantId, imageUrl: url, videoUrl: null },
+      update: { imageUrl: url, videoUrl: null },
+    });
+    if (existing?.imageUrl && existing.imageUrl !== url) {
+      await this.storage.deleteByUrl(existing.imageUrl);
+    }
+    if (existing?.videoUrl) await this.storage.deleteByUrl(existing.videoUrl);
+    return { image_url: url };
+  }
+
+  async removeImage(tenantId: string) {
+    const existing = await this.prisma.tenantTheme.findUnique({
+      where: { tenantId },
+      select: { imageUrl: true },
+    });
+    if (existing?.imageUrl) {
+      await this.prisma.tenantTheme.update({ where: { tenantId }, data: { imageUrl: null } });
+      await this.storage.deleteByUrl(existing.imageUrl);
+    }
+    return { image_url: null };
+  }
+
+  /** Durasi rotasi display (fase antrian vs media). Upsert; hanya field terkirim. */
+  async updateDisplayConfig(tenantId: string, dto: UpdateDisplayConfigDto) {
+    await this.ensureExists(tenantId);
+    const data = {
+      ...(dto.queue_view_seconds !== undefined ? { queueViewSeconds: dto.queue_view_seconds } : {}),
+      ...(dto.media_view_seconds !== undefined ? { mediaViewSeconds: dto.media_view_seconds } : {}),
+    };
+    const theme = await this.prisma.tenantTheme.upsert({
+      where: { tenantId },
+      create: { tenantId, ...data },
+      update: data,
+    });
+    return toWireTheme(theme);
   }
 
   /**

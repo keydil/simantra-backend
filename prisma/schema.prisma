@@ -229,9 +229,15 @@ model TenantTheme {
   backgroundColor String   @default("#FFFFFF") @map("background_color") @db.VarChar(7)
   logoUrl         String?  @map("logo_url") @db.VarChar(512)
   faviconUrl      String?  @map("favicon_url") @db.VarChar(512)
-  // E7 Video Display: satu video signage per instansi, di-loop. Self-hosted
-  // upload (POST /tenants/:id/video), URL selalu buatan server.
+  // Media Display: video ATAU foto signage per instansi (XOR — set salah satu
+  // meng-clear yang lain). video_url = POST /video, image_url = POST /image
+  // (reuse saveImage). Kosong dua-duanya → display antrian saja.
   videoUrl        String?  @map("video_url") @db.VarChar(512)
+  imageUrl        String?  @map("image_url") @db.VarChar(512)
+  // Rotasi display: berapa detik fase antrian vs fase media. Diatur admin via
+  // PATCH /tenants/:id/display-config.
+  queueViewSeconds Int     @default(20) @map("queue_view_seconds")
+  mediaViewSeconds Int     @default(60) @map("media_view_seconds")
   // Teks berjalan (marquee) display, self-manage admin. Kosong → display
   // pakai teks default. Diatur via PATCH /tenants/:id/running-text.
   runningText     String?  @map("running_text") @db.VarChar(500)
