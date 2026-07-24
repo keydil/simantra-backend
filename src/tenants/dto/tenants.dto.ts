@@ -92,6 +92,14 @@ export class UpdateThemeDto {
   @IsOptional() @IsBoolean() is_custom_theme?: boolean;
 }
 
+export class UpdateRunningTextDto {
+  // String biasa (bukan optional): kirim "" untuk mengosongkan → service
+  // menyimpannya sebagai null sehingga display kembali ke teks default.
+  @IsString()
+  @MaxLength(500)
+  running_text!: string;
+}
+
 export class ListTenantsQueryDto {
   @IsOptional()
   @IsIn(['true', 'false'])

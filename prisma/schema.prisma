@@ -229,6 +229,12 @@ model TenantTheme {
   backgroundColor String   @default("#FFFFFF") @map("background_color") @db.VarChar(7)
   logoUrl         String?  @map("logo_url") @db.VarChar(512)
   faviconUrl      String?  @map("favicon_url") @db.VarChar(512)
+  // E7 Video Display: satu video signage per instansi, di-loop. Self-hosted
+  // upload (POST /tenants/:id/video), URL selalu buatan server.
+  videoUrl        String?  @map("video_url") @db.VarChar(512)
+  // Teks berjalan (marquee) display, self-manage admin. Kosong → display
+  // pakai teks default. Diatur via PATCH /tenants/:id/running-text.
+  runningText     String?  @map("running_text") @db.VarChar(500)
   customCss       String?  @map("custom_css")
   isCustomTheme   Boolean  @default(false) @map("is_custom_theme")
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)

@@ -191,6 +191,63 @@ export class TenantsService {
     return { logo_url: url };
   }
 
+  /**
+   * E7: set video signage instansi. File SUDAH ditulis multer diskStorage ke
+   * disk sebelum method ini jalan — jadi kalau tenant ternyata tak ada, file
+   * itu harus dibersihkan supaya tidak jadi yatim. Video lama (kalau ada)
+   * dihapus setelah baris DB berhasil diperbarui.
+   */
+  async uploadVideo(tenantId: string, filename: string) {
+    const url = this.storage.videoUrl(filename);
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { id: true } });
+    if (!tenant) {
+      await this.storage.deleteByUrl(url); // bersihkan file yatim
+      throw new NotFoundException('Instansi tidak ditemukan');
+    }
+
+    const existing = await this.prisma.tenantTheme.findUnique({
+      where: { tenantId },
+      select: { videoUrl: true },
+    });
+    await this.prisma.tenantTheme.upsert({
+      where: { tenantId },
+      create: { tenantId, videoUrl: url },
+      update: { videoUrl: url },
+    });
+    if (existing?.videoUrl && existing.videoUrl !== url) {
+      await this.storage.deleteByUrl(existing.videoUrl);
+    }
+    return { video_url: url };
+  }
+
+  /**
+   * Set teks berjalan display. Kosong/whitespace → null supaya display pakai
+   * teks default. Upsert karena baris theme mungkin belum ada.
+   */
+  async updateRunningText(tenantId: string, runningText: string) {
+    await this.ensureExists(tenantId);
+    const value = runningText.trim() || null;
+    const theme = await this.prisma.tenantTheme.upsert({
+      where: { tenantId },
+      create: { tenantId, runningText: value },
+      update: { runningText: value },
+    });
+    return toWireTheme(theme);
+  }
+
+  /** E7: hapus video → display kembali ke layout nomor antrian (fallback). */
+  async removeVideo(tenantId: string) {
+    const existing = await this.prisma.tenantTheme.findUnique({
+      where: { tenantId },
+      select: { videoUrl: true },
+    });
+    if (existing?.videoUrl) {
+      await this.prisma.tenantTheme.update({ where: { tenantId }, data: { videoUrl: null } });
+      await this.storage.deleteByUrl(existing.videoUrl);
+    }
+    return { video_url: null };
+  }
+
   // ── Internal ─────────────────────────────────────────────────────────────
   private async ensureExists(tenantId: string) {
     const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { id: true } });

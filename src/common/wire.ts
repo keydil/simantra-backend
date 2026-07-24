@@ -183,6 +183,8 @@ export function toWireTheme(th: TenantTheme) {
     background_color: th.backgroundColor,
     logo_url: th.logoUrl,
     favicon_url: th.faviconUrl,
+    video_url: th.videoUrl,
+    running_text: th.runningText,
     custom_css: th.customCss,
     is_custom_theme: th.isCustomTheme,
     created_at: th.createdAt,

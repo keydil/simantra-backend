@@ -15,8 +15,20 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { Roles } from '../common/decorators/roles.decorator';
-import { ALLOWED_IMAGE_MIMES, MAX_UPLOAD_BYTES } from '../storage/storage.service';
-import { CreateTenantDto, ListTenantsQueryDto, UpdateTenantDto, UpdateThemeDto } from './dto/tenants.dto';
+import {
+  ALLOWED_IMAGE_MIMES,
+  MAX_UPLOAD_BYTES,
+  MAX_VIDEO_BYTES,
+  videoDiskStorage,
+  videoFileFilter,
+} from '../storage/storage.service';
+import {
+  CreateTenantDto,
+  ListTenantsQueryDto,
+  UpdateRunningTextDto,
+  UpdateTenantDto,
+  UpdateThemeDto,
+} from './dto/tenants.dto';
 import { TenantsService } from './tenants.service';
 
 @Controller('tenants')
@@ -108,5 +120,50 @@ export class TenantsController {
       throw new BadRequestException('Tipe file tidak didukung (hanya JPEG/PNG/WebP)');
     }
     return this.tenants.uploadLogo(tenantId, file.buffer, file.mimetype);
+  }
+
+  /**
+   * E7 Video Display — video signage per instansi (self-manage admin, sejajar
+   * pengaturan tampilan instansinya). BEDA guard dari logo di atas: logo =
+   * identitas brand (superadmin), video = konten tampilan operasional (admin).
+   *
+   * Pakai diskStorage (bukan memoryStorage seperti logo): file bisa s/d 50 MB,
+   * jadi di-stream ke disk. fileFilter menolak tipe non-video sebelum ditulis.
+   */
+  @Roles('superadmin', 'admin')
+  @Post(':tenantId/video')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: videoDiskStorage(),
+      fileFilter: videoFileFilter,
+      limits: { fileSize: MAX_VIDEO_BYTES },
+    }),
+  )
+  uploadVideo(
+    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('File video wajib diunggah (field "file")');
+    return this.tenants.uploadVideo(tenantId, file.filename);
+  }
+
+  @Roles('superadmin', 'admin')
+  @Delete(':tenantId/video')
+  removeVideo(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
+    return this.tenants.removeVideo(tenantId);
+  }
+
+  /**
+   * Teks berjalan display = konten operasional tampilan instansi → self-manage
+   * admin (sejajar video, BEDA dari theme/logo yang superadmin-only). Kirim
+   * running_text "" untuk mengosongkan → display balik ke teks default.
+   */
+  @Roles('superadmin', 'admin')
+  @Patch(':tenantId/running-text')
+  updateRunningText(
+    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+    @Body() dto: UpdateRunningTextDto,
+  ) {
+    return this.tenants.updateRunningText(tenantId, dto.running_text);
   }
 }
