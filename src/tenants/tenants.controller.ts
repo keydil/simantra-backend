@@ -81,13 +81,17 @@ export class TenantsController {
     return this.tenants.getTheme(tenantId);
   }
 
-  @Roles('superadmin', 'admin')
+  // Theme = identitas brand → dikunci superadmin (reversal B1, sejajar D1
+  // profil instansi). GET di atas tetap boleh admin (untuk tampil read-only).
+  @Roles('superadmin')
   @Patch(':tenantId/theme')
   updateTheme(@Param('tenantId', ParseUUIDPipe) tenantId: string, @Body() dto: UpdateThemeDto) {
     return this.tenants.updateTheme(tenantId, dto);
   }
 
-  @Roles('superadmin', 'admin')
+  // Logo = identitas brand → dikunci superadmin (reversal B1). Tak ada UI admin
+  // yang memanggil ini; hanya alur superadmin "Tambah Instansi".
+  @Roles('superadmin')
   @Post(':tenantId/logo')
   @UseInterceptors(
     FileInterceptor('file', {
