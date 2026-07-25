@@ -23,7 +23,7 @@ export const MAX_UPLOAD_BYTES = 2 * 1024 * 1024; // 2 MB (logo & foto tamu)
 export const MAX_VIDEO_BYTES = 50 * 1024 * 1024; // 50 MB (video signage E7)
 
 /** Semua prefix folder di dalam /uploads. */
-export type UploadPrefix = 'guest-photos' | 'tenant-logos' | 'tenant-videos' | 'tenant-display';
+export type UploadPrefix = 'guest-photos' | 'tenant-logos' | 'tenant-videos' | 'tenant-display' | 'sponsor-logos';
 
 /**
  * Resolusi direktori upload — DISALIN dari cara StorageService membacanya,
@@ -96,7 +96,7 @@ export class StorageService implements OnModuleInit {
     return this.localDir;
   }
 
-  async saveImage(buffer: Buffer, mime: string, prefix: 'guest-photos' | 'tenant-logos' | 'tenant-display') {
+  async saveImage(buffer: Buffer, mime: string, prefix: 'guest-photos' | 'tenant-logos' | 'tenant-display' | 'sponsor-logos') {
     const ext = MIME_EXT[mime];
     if (!ext) {
       throw new BadRequestException(`Tipe file tidak didukung: ${mime} (hanya JPEG/PNG/WebP)`);
@@ -141,9 +141,9 @@ export class StorageService implements OnModuleInit {
     if (!url) return;
     if (this.driver !== 'local') return;
 
-    const prefix = (['guest-photos', 'tenant-logos', 'tenant-videos', 'tenant-display'] as const).find((p) =>
-      this.isOwnUploadUrl(url, p),
-    );
+    const prefix = (
+      ['guest-photos', 'tenant-logos', 'tenant-videos', 'tenant-display', 'sponsor-logos'] as const
+    ).find((p) => this.isOwnUploadUrl(url, p));
     if (!prefix) return;
 
     const filename = url.slice(`${this.baseUrl}/uploads/${prefix}/`.length);

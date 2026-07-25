@@ -252,6 +252,20 @@ Semua `@Public()` + `@nestjs/throttler` (L9). Scoping = parameter wajib, filter 
 | DELETE | `/guest-book/purposes/:id` | superadmin, admin | Soft delete (`is_active=false`). |
 | POST | `/tenants/:tenantId/logo` | superadmin, admin (own) | Upload logo tenant → `{ logo_url }` — melengkapi fix UI_UX 3.4. |
 
+### 4.10 Sponsors — logo mitra display ("OFFICIAL PARTNERS")
+Child table per-tenant (BANYAK baris, beda dari `tenant.logo_url`/`theme.video_url`/
+`theme.image_url` yang single-value), mirror `VisitPurpose` (§4.9). Self-manage
+admin (konten operasional tampilan, sejajar video/foto/running-text — BUKAN
+identitas brand seperti logo tenant/theme yang superadmin-only).
+
+| Method | Path | Auth | Keterangan |
+|---|---|---|---|
+| GET | `/tenants/:tenantId/sponsors` | staff (own) | Semua baris (termasuk nonaktif), urut `sort_order` — halaman admin "Logo Sponsor / Mitra". |
+| POST | `/tenants/:tenantId/sponsors` | superadmin, admin (own) | Multipart `file` (+ `name` opsional, alt text) → `saveImage` prefix `sponsor-logos` → row. Maks 8 sponsor per tenant. |
+| PATCH | `/sponsors/:id` | superadmin, admin (own tenant) | `name`/`sort_order`/`is_active` (reorder & toggle). |
+| DELETE | `/sponsors/:id` | superadmin, admin (own tenant) | **Hard delete** (beda dari VisitPurpose yang soft delete) — baris dihapus DAN file dihapus via `deleteByUrl` supaya tidak yatim. |
+| GET | `/public/tenants/:slug/sponsors` | — (`@Public`) | Hanya aktif, urut `sort_order`, untuk strip display board. Endpoint terpisah dari `/public/tenants/:slug`, konsisten dengan pola announcements (§4.6). |
+
 ---
 
 ## 5. WebSocket Gateway (pengganti Supabase Realtime)

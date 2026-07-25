@@ -4,6 +4,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AnalyticsModule } from './analytics/analytics.module';
+import { SponsorsModule } from './sponsors/sponsors.module';
 import { SystemModule } from './system/system.module';
 import { VisitPurposesModule } from './visit-purposes/visit-purposes.module';
 import { AnnouncementsModule } from './announcements/announcements.module';
@@ -49,6 +50,7 @@ import { UsersModule } from './users/users.module';
     AnalyticsModule,
     SystemModule,
     VisitPurposesModule,
+    SponsorsModule,
   ],
   controllers: [HealthController],
   providers: [

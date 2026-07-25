@@ -4,6 +4,7 @@ import {
   GuestBookEntry,
   Queue,
   QueueEntry,
+  Sponsor,
   Tenant,
   TenantTheme,
   TenantUser,
@@ -75,6 +76,19 @@ export function toWireVisitPurpose(p: VisitPurpose) {
     is_active: p.isActive,
     created_at: p.createdAt,
     updated_at: p.updatedAt,
+  };
+}
+
+export function toWireSponsor(s: Sponsor) {
+  return {
+    id: s.id,
+    tenant_id: s.tenantId,
+    image_url: s.imageUrl,
+    name: s.name,
+    sort_order: s.sortOrder,
+    is_active: s.isActive,
+    created_at: s.createdAt,
+    updated_at: s.updatedAt,
   };
 }
 
