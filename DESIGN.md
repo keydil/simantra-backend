@@ -82,6 +82,13 @@ Catatan desain:
 ### 2.2 Rantai guard (urutan eksekusi)
 
 ```
+AppThrottlerGuard (global, APP_GUARD) — src/common/guards/app-throttler.guard.ts
+  → jalan PALING AWAL, sebelum JwtAuthGuard (request.user belum ada)
+  → baca metadata @Public() sendiri (bukan request.user) buat pilih bucket:
+    route @Public() → THROTTLE_LIMIT (default 100/60s), route staff (butuh
+    JWT) → THROTTLE_STAFF_LIMIT (default 300/60s, tetap terbatas bukan
+    unlimited). Alasan: throttle per-IP pertahanan utamanya buat trafik
+    anonim; staff sudah digerbangi JwtAuthGuard+RolesGuard di bawah.
 JwtAuthGuard (global, APP_GUARD)
   → skip jika handler ditandai @Public()
 RolesGuard
