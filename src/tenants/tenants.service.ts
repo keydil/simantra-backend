@@ -198,6 +198,47 @@ export class TenantsService {
   }
 
   /**
+   * Wordmark judul-tengah kiosk. TIDAK XOR dengan apa pun, TIDAK menyentuh
+   * headerMode — upload murni set URL; toggle mode terpisah lewat updateTheme
+   * (dto.header_mode, lihat themeData). Sengaja beda dari uploadVideo/
+   * uploadImage yang saling meng-clear satu sama lain.
+   */
+  async uploadHeaderWordmark(tenantId: string, buffer: Buffer, mime: string) {
+    await this.ensureExists(tenantId);
+    const { url } = await this.storage.saveImage(buffer, mime, 'tenant-wordmarks');
+    const existing = await this.prisma.tenantTheme.findUnique({
+      where: { tenantId },
+      select: { headerWordmarkUrl: true },
+    });
+    await this.prisma.tenantTheme.upsert({
+      where: { tenantId },
+      create: { tenantId, headerWordmarkUrl: url },
+      update: { headerWordmarkUrl: url },
+    });
+    if (existing?.headerWordmarkUrl && existing.headerWordmarkUrl !== url) {
+      await this.storage.deleteByUrl(existing.headerWordmarkUrl);
+    }
+    return { header_wordmark_url: url };
+  }
+
+  /**
+   * Hapus file wordmark. TIDAK auto-revert headerMode ke 'generated' — kalau
+   * wordmark dihapus saat mode masih 'wordmark', kiosk fallback ke teks
+   * (lihat guard defensif di kiosk-home.tsx) sampai mode diganti manual.
+   */
+  async removeHeaderWordmark(tenantId: string) {
+    const existing = await this.prisma.tenantTheme.findUnique({
+      where: { tenantId },
+      select: { headerWordmarkUrl: true },
+    });
+    if (existing?.headerWordmarkUrl) {
+      await this.prisma.tenantTheme.update({ where: { tenantId }, data: { headerWordmarkUrl: null } });
+      await this.storage.deleteByUrl(existing.headerWordmarkUrl);
+    }
+    return { header_wordmark_url: null };
+  }
+
+  /**
    * E7: set video signage instansi. File SUDAH ditulis multer diskStorage ke
    * disk sebelum method ini jalan — jadi kalau tenant ternyata tak ada, file
    * itu harus dibersihkan supaya tidak jadi yatim. Video lama (kalau ada)
@@ -330,6 +371,16 @@ export class TenantsService {
       ...(dto.favicon_url !== undefined ? { faviconUrl: dto.favicon_url } : {}),
       ...(dto.custom_css !== undefined ? { customCss: dto.custom_css } : {}),
       ...(dto.is_custom_theme !== undefined ? { isCustomTheme: dto.is_custom_theme } : {}),
+      ...(dto.header_mode !== undefined ? { headerMode: dto.header_mode } : {}),
+      ...(dto.header_title_font !== undefined ? { headerTitleFont: dto.header_title_font } : {}),
+      ...(dto.header_title_bold !== undefined ? { headerTitleBold: dto.header_title_bold } : {}),
+      ...(dto.header_subtitle_text !== undefined
+        ? { headerSubtitleText: dto.header_subtitle_text.trim() || null }
+        : {}),
+      ...(dto.header_subtitle_font !== undefined ? { headerSubtitleFont: dto.header_subtitle_font } : {}),
+      ...(dto.header_subtitle_bold !== undefined ? { headerSubtitleBold: dto.header_subtitle_bold } : {}),
+      ...(dto.header_subtitle_size !== undefined ? { headerSubtitleSize: dto.header_subtitle_size } : {}),
+      ...(dto.header_subtitle_color !== undefined ? { headerSubtitleColor: dto.header_subtitle_color } : {}),
     };
   }
 }

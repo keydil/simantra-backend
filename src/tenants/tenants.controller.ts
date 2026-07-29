@@ -124,6 +124,39 @@ export class TenantsController {
   }
 
   /**
+   * Wordmark judul-tengah kiosk. Aset TERPISAH dari logo (ikon kotak kecil di
+   * atas) — ini gambar custom (mis. logotype Figma) yang menggantikan
+   * <h1>{tenant.name}</h1> di header publik. Sama seperti logo: identitas
+   * brand → superadmin-only. Mode aktif (generated/wordmark) diatur lewat
+   * PATCH :tenantId/theme (header_mode), TERPISAH dari upload ini — upload
+   * murni set URL, tidak otomatis mengaktifkan mode wordmark.
+   */
+  @Roles('superadmin')
+  @Post(':tenantId/header-wordmark')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: MAX_UPLOAD_BYTES },
+    }),
+  )
+  uploadHeaderWordmark(
+    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('File wordmark wajib diunggah (field "file")');
+    if (!ALLOWED_IMAGE_MIMES.includes(file.mimetype)) {
+      throw new BadRequestException('Tipe file tidak didukung (hanya JPEG/PNG/WebP)');
+    }
+    return this.tenants.uploadHeaderWordmark(tenantId, file.buffer, file.mimetype);
+  }
+
+  @Roles('superadmin')
+  @Delete(':tenantId/header-wordmark')
+  removeHeaderWordmark(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
+    return this.tenants.removeHeaderWordmark(tenantId);
+  }
+
+  /**
    * E7 Video Display — video signage per instansi (self-manage admin, sejajar
    * pengaturan tampilan instansinya). BEDA guard dari logo di atas: logo =
    * identitas brand (superadmin), video = konten tampilan operasional (admin).
