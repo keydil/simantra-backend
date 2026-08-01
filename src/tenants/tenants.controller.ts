@@ -157,6 +157,41 @@ export class TenantsController {
   }
 
   /**
+   * Latar display board (TV antrian). Sama seperti wordmark & logo: identitas
+   * tampilan instansi → superadmin-only. Mode aktif (default/custom) diatur
+   * lewat PATCH :tenantId/theme (display_background_mode), TERPISAH dari upload
+   * ini — upload murni set URL, tidak otomatis mengaktifkan mode custom.
+   *
+   * TIDAK ada validasi kontras/overlay otomatis terhadap gambar yang diunggah:
+   * sama seperti wordmark, instansi pengunggah yang bertanggung jawab
+   * memastikan latarnya tidak mengganggu keterbacaan kartu.
+   */
+  @Roles('superadmin')
+  @Post(':tenantId/display-background')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: MAX_UPLOAD_BYTES },
+    }),
+  )
+  uploadDisplayBackground(
+    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('File latar wajib diunggah (field "file")');
+    if (!ALLOWED_IMAGE_MIMES.includes(file.mimetype)) {
+      throw new BadRequestException('Tipe file tidak didukung (hanya JPEG/PNG/WebP)');
+    }
+    return this.tenants.uploadDisplayBackground(tenantId, file.buffer, file.mimetype);
+  }
+
+  @Roles('superadmin')
+  @Delete(':tenantId/display-background')
+  removeDisplayBackground(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
+    return this.tenants.removeDisplayBackground(tenantId);
+  }
+
+  /**
    * E7 Video Display — video signage per instansi (self-manage admin, sejajar
    * pengaturan tampilan instansinya). BEDA guard dari logo di atas: logo =
    * identitas brand (superadmin), video = konten tampilan operasional (admin).

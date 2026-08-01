@@ -159,9 +159,21 @@ export class TenantsService {
       where: { tenantId, photoUrl: { not: null } },
       select: { photoUrl: true },
     });
-    const fileUrls = [tenant.logoUrl, ...photos.map((p) => p.photoUrl)].filter(
-      (u): u is string => !!u,
-    );
+    // CATATAN: daftar ini masih BELUM lengkap. headerWordmarkUrl, videoUrl, dan
+    // imageUrl juga tersimpan di tenant_themes dan sama-sama jadi file yatim
+    // saat instansi dihapus permanen — celah yang sudah ada sebelum field latar
+    // ini dan sengaja tidak ikut diperbaiki di sini supaya perubahannya tetap
+    // sempit. Yang ditambahkan cuma displayBackgroundUrl, supaya field BARU tak
+    // ikut menambah kebocoran yang sudah ada.
+    const theme = await this.prisma.tenantTheme.findUnique({
+      where: { tenantId },
+      select: { displayBackgroundUrl: true },
+    });
+    const fileUrls = [
+      tenant.logoUrl,
+      theme?.displayBackgroundUrl,
+      ...photos.map((p) => p.photoUrl),
+    ].filter((u): u is string => !!u);
 
     await this.prisma.tenant.delete({ where: { id: tenantId } });
 
@@ -236,6 +248,46 @@ export class TenantsService {
       await this.storage.deleteByUrl(existing.headerWordmarkUrl);
     }
     return { header_wordmark_url: null };
+  }
+
+  /**
+   * Latar display board. Pola identik dengan uploadHeaderWordmark: TIDAK XOR
+   * dengan apa pun, TIDAK menyentuh displayBackgroundMode — upload murni set
+   * URL; toggle mode terpisah lewat updateTheme (dto.display_background_mode).
+   */
+  async uploadDisplayBackground(tenantId: string, buffer: Buffer, mime: string) {
+    await this.ensureExists(tenantId);
+    const { url } = await this.storage.saveImage(buffer, mime, 'tenant-display-bg');
+    const existing = await this.prisma.tenantTheme.findUnique({
+      where: { tenantId },
+      select: { displayBackgroundUrl: true },
+    });
+    await this.prisma.tenantTheme.upsert({
+      where: { tenantId },
+      create: { tenantId, displayBackgroundUrl: url },
+      update: { displayBackgroundUrl: url },
+    });
+    if (existing?.displayBackgroundUrl && existing.displayBackgroundUrl !== url) {
+      await this.storage.deleteByUrl(existing.displayBackgroundUrl);
+    }
+    return { display_background_url: url };
+  }
+
+  /**
+   * Hapus file latar. TIDAK auto-revert displayBackgroundMode ke 'default' —
+   * kalau latar dihapus saat mode masih 'custom', board jatuh ke aset bawaan
+   * (guard defensif di display-board.tsx) sampai mode diganti manual.
+   */
+  async removeDisplayBackground(tenantId: string) {
+    const existing = await this.prisma.tenantTheme.findUnique({
+      where: { tenantId },
+      select: { displayBackgroundUrl: true },
+    });
+    if (existing?.displayBackgroundUrl) {
+      await this.prisma.tenantTheme.update({ where: { tenantId }, data: { displayBackgroundUrl: null } });
+      await this.storage.deleteByUrl(existing.displayBackgroundUrl);
+    }
+    return { display_background_url: null };
   }
 
   /**
@@ -372,6 +424,9 @@ export class TenantsService {
       ...(dto.custom_css !== undefined ? { customCss: dto.custom_css } : {}),
       ...(dto.is_custom_theme !== undefined ? { isCustomTheme: dto.is_custom_theme } : {}),
       ...(dto.header_mode !== undefined ? { headerMode: dto.header_mode } : {}),
+      ...(dto.display_background_mode !== undefined
+        ? { displayBackgroundMode: dto.display_background_mode }
+        : {}),
       ...(dto.header_title_font !== undefined ? { headerTitleFont: dto.header_title_font } : {}),
       ...(dto.header_title_bold !== undefined ? { headerTitleBold: dto.header_title_bold } : {}),
       ...(dto.header_subtitle_text !== undefined

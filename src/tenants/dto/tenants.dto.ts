@@ -1,4 +1,4 @@
-import { SubscriptionTier, TenantHeaderMode } from '@prisma/client';
+import { SubscriptionTier, TenantDisplayBackgroundMode, TenantHeaderMode } from '@prisma/client';
 import {
   IsBoolean,
   IsEnum,
@@ -118,6 +118,11 @@ export class UpdateThemeDto {
   // image_url, hanya pernah di-set lewat endpoint upload, tak pernah
   // diterima sebagai URL mentah dari client.
   @IsOptional() @IsEnum(TenantHeaderMode) header_mode?: TenantHeaderMode;
+
+  // display_background_url SENGAJA tak ada di sini — sama seperti
+  // header_wordmark_url: hanya pernah di-set lewat endpoint upload, tak pernah
+  // diterima sebagai URL mentah dari client.
+  @IsOptional() @IsEnum(TenantDisplayBackgroundMode) display_background_mode?: TenantDisplayBackgroundMode;
 
   // Tipografi mode 'generated'. Judul TETAP ikut tenant.name — tak ada field
   // "header_title_text" di sini secara sengaja (lihat schema.prisma).

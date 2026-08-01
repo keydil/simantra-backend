@@ -206,6 +206,8 @@ export function toWireTheme(th: TenantTheme) {
     is_custom_theme: th.isCustomTheme,
     header_mode: th.headerMode,
     header_wordmark_url: th.headerWordmarkUrl,
+    display_background_mode: th.displayBackgroundMode,
+    display_background_url: th.displayBackgroundUrl,
     header_title_font: th.headerTitleFont,
     header_title_bold: th.headerTitleBold,
     header_subtitle_text: th.headerSubtitleText,
