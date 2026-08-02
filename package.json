@@ -12,6 +12,7 @@
     "prisma:migrate": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "db:seed": "prisma db seed",
+    "seed:demo": "ts-node --transpile-only prisma/seed-demo-data.ts",
     "migrate:supabase": "node --env-file=.env scripts/migrate-from-supabase.mjs",
     "lint": "eslint \"src/**/*.ts\"",
     "test": "jest"
