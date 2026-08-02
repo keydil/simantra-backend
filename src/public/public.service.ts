@@ -39,13 +39,28 @@ export class PublicService {
     return queues.map(toWireQueue);
   }
 
-  /** RPC get_public_queue_entries — DTO publik TANPA customer_name/notes. */
+  /**
+   * RPC get_public_queue_entries — DTO publik TANPA customer_name/notes.
+   *
+   * DIBATASI HARI INI. Dulu tanpa batas tanggal sama sekali, padahal urutannya
+   * `enteredAt asc` (terlama dulu) dengan cap 500 — begitu satu instansi
+   * mengumpulkan >500 entri seumur hidup, 500 slot habis diisi entri `completed`
+   * berbulan-bulan lalu dan tiket yang SEDANG dilayani hari ini terpotong,
+   * membuat papan display tampak kosong ("0 menunggu", loket "---") walau
+   * antreannya jalan. Batas hari ini juga menutup masalah kedua: entri `waiting`
+   * terlantar dari hari-hari sebelumnya (tak pernah dipanggil atau dibatalkan)
+   * ikut tampil sebagai tiket hantu. take 500 tetap ada sebagai pengaman, tapi
+   * sekarang per-hari — jauh di atas volume harian yang wajar.
+   */
   async getEntries(slug: string, query: PublicEntriesQueryDto) {
     await this.assertTenantActive(slug);
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
     const entries = await this.prisma.queueEntry.findMany({
       where: {
         tenant: { subdomain: slug, isActive: true },
         status: { in: this.parseStatuses(query.status) },
+        enteredAt: { gte: todayStart },
       },
       orderBy: { enteredAt: 'asc' },
       take: 500,
