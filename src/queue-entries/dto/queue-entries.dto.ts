@@ -34,6 +34,39 @@ export class ListEntriesQueryDto {
   since?: string;
 }
 
+/** Rekap laporan — beda dari ListEntriesQueryDto: from/to WAJIB (selalu
+ *  bounded, divalidasi rentang-maks di service), default status SEMUA
+ *  (bukan cuma waiting/serving), plus pagination page/count seperti buku tamu. */
+export class ListEntriesRecapQueryDto {
+  @IsDateString()
+  from!: string;
+
+  @IsDateString()
+  to!: string;
+
+  @IsOptional()
+  @IsUUID()
+  queue_id?: string;
+
+  /** CSV, mis. "completed,no_show,cancelled" — default semua status. */
+  @IsOptional()
+  @IsString()
+  status?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+}
+
 export class CallNextDto {
   @IsOptional()
   @Type(() => Number)

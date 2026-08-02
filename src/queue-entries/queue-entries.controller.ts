@@ -5,6 +5,7 @@ import { Roles } from '../common/decorators/roles.decorator';
 import {
   CallNextDto,
   ListEntriesQueryDto,
+  ListEntriesRecapQueryDto,
   UpdateEntryDto,
   UpdateEntryStatusDto,
 } from './dto/queue-entries.dto';
@@ -21,6 +22,17 @@ export class QueueEntriesController {
     @Query() query: ListEntriesQueryDto,
   ) {
     return this.entries.listByTenant(tenantId, query);
+  }
+
+  // Laporan rekapitulasi — khusus admin/superadmin, beda dari `list` di atas
+  // yang terbuka untuk semua role (ini alat pelaporan, sama seperti buku tamu).
+  @Roles('superadmin', 'admin')
+  @Get('tenants/:tenantId/entries/recap')
+  recap(
+    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+    @Query() query: ListEntriesRecapQueryDto,
+  ) {
+    return this.entries.recapByTenant(tenantId, query);
   }
 
   @Get('tenants/:tenantId/entries/summary')

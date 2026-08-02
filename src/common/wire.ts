@@ -110,6 +110,15 @@ export function toWireEntry(e: QueueEntry) {
   };
 }
 
+/** Bentuk rekap laporan — toWireEntry + nama layanan (join Queue), dipakai
+ *  endpoint GET .../entries/recap saja. */
+export function toWireRecapEntry(e: QueueEntry & { queue: { name: string; displayName: string | null } }) {
+  return {
+    ...toWireEntry(e),
+    queue_name: e.queue.displayName ?? e.queue.name,
+  };
+}
+
 /** Bentuk publik (TV display/kiosk) — TANPA customer_name & notes (§4.8). */
 export function toWirePublicEntry(e: QueueEntry) {
   return {
