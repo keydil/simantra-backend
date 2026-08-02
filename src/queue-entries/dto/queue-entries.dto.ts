@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import {
   IsDateString,
   IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -65,6 +66,13 @@ export class ListEntriesRecapQueryDto {
   @Min(1)
   @Max(100)
   limit?: number;
+
+  /** Urutan baris data (tidak memengaruhi summary). Default 'desc' — preview
+   *  laporan terbaru dulu; export loop mengirim 'asc' eksplisit supaya file
+   *  yang diunduh tetap kronologis (konvensi laporan/ledger). */
+  @IsOptional()
+  @IsIn(['asc', 'desc'])
+  order?: 'asc' | 'desc';
 }
 
 export class CallNextDto {

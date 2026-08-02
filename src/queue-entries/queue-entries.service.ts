@@ -84,7 +84,7 @@ export class QueueEntriesService {
       this.prisma.queueEntry.findMany({
         where,
         include: { queue: { select: { name: true, displayName: true } } },
-        orderBy: { enteredAt: 'asc' },
+        orderBy: { enteredAt: query.order ?? 'desc' },
         skip: (page - 1) * limit,
         take: limit,
       }),
