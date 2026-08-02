@@ -31,3 +31,18 @@ export class ChangePasswordDto {
   @MinLength(8)
   new_password!: string;
 }
+
+export class ForgotPasswordDto {
+  @IsEmail()
+  email!: string;
+}
+
+export class ResetPasswordConfirmDto {
+  @IsString()
+  @IsNotEmpty()
+  token!: string;
+
+  @IsString()
+  @MinLength(8)
+  new_password!: string;
+}

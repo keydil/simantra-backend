@@ -88,7 +88,7 @@ model Tenant {
   createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  users        TenantUser[]
+  users         TenantUser[]
   queues        Queue[]
   queueEntries  QueueEntry[]
   analytics     AnalyticsDaily[]
@@ -120,9 +120,10 @@ model TenantUser {
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant        Tenant?        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  refreshTokens RefreshToken[]
-  announcements Announcement[]
+  tenant              Tenant?              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  refreshTokens       RefreshToken[]
+  announcements       Announcement[]
+  passwordResetTokens PasswordResetToken[]
 
   @@index([tenantId])
   @@map("tenant_users")
@@ -142,6 +143,24 @@ model RefreshToken {
 
   @@index([userId])
   @@map("refresh_tokens")
+}
+
+// Token sekali-pakai untuk flow forgot-password via email (Resend). Mengikuti
+// pola RefreshToken: hanya hash SHA-256 token mentah yang disimpan, token
+// mentah sendiri cuma ada sekali di link email. usedAt (bukan revokedAt)
+// karena semantiknya "sudah dipakai" bukan "dicabut paksa".
+model PasswordResetToken {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user TenantUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
 }
 
 model Queue {
@@ -235,26 +254,26 @@ model AnalyticsDaily {
 }
 
 model TenantTheme {
-  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId        String   @unique @map("tenant_id") @db.Uuid
-  primaryColor    String   @default("#3B82F6") @map("primary_color") @db.VarChar(7)
-  secondaryColor  String   @default("#1E40AF") @map("secondary_color") @db.VarChar(7)
-  accentColor     String   @default("#10B981") @map("accent_color") @db.VarChar(7)
-  textColor       String   @default("#1F2937") @map("text_color") @db.VarChar(7)
-  backgroundColor String   @default("#FFFFFF") @map("background_color") @db.VarChar(7)
-  logoUrl         String?  @map("logo_url") @db.VarChar(512)
-  faviconUrl      String?  @map("favicon_url") @db.VarChar(512)
+  id                    String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId              String                      @unique @map("tenant_id") @db.Uuid
+  primaryColor          String                      @default("#3B82F6") @map("primary_color") @db.VarChar(7)
+  secondaryColor        String                      @default("#1E40AF") @map("secondary_color") @db.VarChar(7)
+  accentColor           String                      @default("#10B981") @map("accent_color") @db.VarChar(7)
+  textColor             String                      @default("#1F2937") @map("text_color") @db.VarChar(7)
+  backgroundColor       String                      @default("#FFFFFF") @map("background_color") @db.VarChar(7)
+  logoUrl               String?                     @map("logo_url") @db.VarChar(512)
+  faviconUrl            String?                     @map("favicon_url") @db.VarChar(512)
   // Media Display: video ATAU foto signage per instansi (XOR — set salah satu
   // meng-clear yang lain). video_url = POST /video, image_url = POST /image
   // (reuse saveImage). Kosong dua-duanya → display antrian saja.
-  videoUrl        String?  @map("video_url") @db.VarChar(512)
-  imageUrl        String?  @map("image_url") @db.VarChar(512)
+  videoUrl              String?                     @map("video_url") @db.VarChar(512)
+  imageUrl              String?                     @map("image_url") @db.VarChar(512)
   // Judul tengah kiosk: teks auto-generate dari tenant.name, ATAU wordmark
   // gambar custom (logotype Figma). header_wordmark_url TETAP tersimpan saat
   // mode balik ke 'generated' — BUKAN XOR seperti video/image — supaya toggle
   // tak perlu re-upload ulang.
-  headerMode        TenantHeaderMode @default(generated) @map("header_mode")
-  headerWordmarkUrl String?          @map("header_wordmark_url") @db.VarChar(512)
+  headerMode            TenantHeaderMode            @default(generated) @map("header_mode")
+  headerWordmarkUrl     String?                     @map("header_wordmark_url") @db.VarChar(512)
   // Latar display board. 'default' → aset bawaan di public/ (lihat
   // DEFAULT_DISPLAY_BG di display-board.tsx); 'custom' → gambar unggahan
   // instansi. URL TETAP tersimpan saat mode balik ke 'default', persis seperti
@@ -268,30 +287,30 @@ model TenantTheme {
   // kiosk-home.tsx). Font disimpan STRING tervalidasi (bukan enum Prisma)
   // SENGAJA: nambah pilihan font baru nanti murni ubah kode (allowlist di
   // DTO + import next/font), TANPA migrasi database sama sekali.
-  headerTitleFont    String  @default("default") @map("header_title_font") @db.VarChar(32)
-  headerTitleBold    Boolean @default(true) @map("header_title_bold")
-  headerSubtitleText String? @map("header_subtitle_text") @db.VarChar(100)
-  headerSubtitleFont String  @default("default") @map("header_subtitle_font") @db.VarChar(32)
-  headerSubtitleBold Boolean @default(false) @map("header_subtitle_bold")
+  headerTitleFont       String                      @default("default") @map("header_title_font") @db.VarChar(32)
+  headerTitleBold       Boolean                     @default(true) @map("header_title_bold")
+  headerSubtitleText    String?                     @map("header_subtitle_text") @db.VarChar(100)
+  headerSubtitleFont    String                      @default("default") @map("header_subtitle_font") @db.VarChar(32)
+  headerSubtitleBold    Boolean                     @default(false) @map("header_subtitle_bold")
   // Ukuran & warna subtitle. Ukuran = string tervalidasi (sm/md/lg), pola
   // sama dengan font: pilihan preset, bukan px bebas, konsisten dengan gaya
   // form lain di app ini yang menghindari input angka bebas. Warna SENGAJA
   // kolom baru terpisah — BUKAN reuse text_color yang sudah ada (meski
   // text_color belum dipakai di mana pun juga) — atas keputusan eksplisit
   // saat fitur ini dibahas.
-  headerSubtitleSize  String @default("sm") @map("header_subtitle_size") @db.VarChar(8)
-  headerSubtitleColor String @default("#64748b") @map("header_subtitle_color") @db.VarChar(7)
+  headerSubtitleSize    String                      @default("sm") @map("header_subtitle_size") @db.VarChar(8)
+  headerSubtitleColor   String                      @default("#64748b") @map("header_subtitle_color") @db.VarChar(7)
   // Rotasi display: berapa detik fase antrian vs fase media. Diatur admin via
   // PATCH /tenants/:id/display-config.
-  queueViewSeconds Int     @default(20) @map("queue_view_seconds")
-  mediaViewSeconds Int     @default(60) @map("media_view_seconds")
+  queueViewSeconds      Int                         @default(20) @map("queue_view_seconds")
+  mediaViewSeconds      Int                         @default(60) @map("media_view_seconds")
   // Teks berjalan (marquee) display, self-manage admin. Kosong → display
   // pakai teks default. Diatur via PATCH /tenants/:id/running-text.
-  runningText     String?  @map("running_text") @db.VarChar(500)
-  customCss       String?  @map("custom_css")
-  isCustomTheme   Boolean  @default(false) @map("is_custom_theme")
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  runningText           String?                     @map("running_text") @db.VarChar(500)
+  customCss             String?                     @map("custom_css")
+  isCustomTheme         Boolean                     @default(false) @map("is_custom_theme")
+  createdAt             DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime                    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 

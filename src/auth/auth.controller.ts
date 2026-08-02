@@ -6,7 +6,13 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
 import { AuthService, RequestMeta } from './auth.service';
 import { AuthUser } from './auth.types';
-import { ChangePasswordDto, LoginDto, RefreshDto } from './dto/auth.dto';
+import {
+  ChangePasswordDto,
+  ForgotPasswordDto,
+  LoginDto,
+  RefreshDto,
+  ResetPasswordConfirmDto,
+} from './dto/auth.dto';
 
 export const REFRESH_COOKIE = 'simantra_refresh';
 
@@ -56,6 +62,25 @@ export class AuthController {
     const raw = dto.refresh_token ?? req.cookies?.[REFRESH_COOKIE];
     res.clearCookie(REFRESH_COOKIE, { path: '/api/v1/auth' });
     return this.auth.logout(raw);
+  }
+
+  // Selalu balas pesan sukses generik yang sama, apa pun hasil internalnya
+  // (anti user-enumeration) — lihat AuthService.forgotPassword.
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @HttpCode(HttpStatus.OK)
+  @Post('forgot-password')
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    await this.auth.forgotPassword(dto.email);
+    return { message: 'Jika email terdaftar, kami sudah mengirim link reset password.' };
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @HttpCode(HttpStatus.OK)
+  @Post('reset-password')
+  async resetPassword(@Body() dto: ResetPasswordConfirmDto) {
+    return this.auth.resetPassword(dto.token, dto.new_password);
   }
 
   @AllowMustChangePassword()

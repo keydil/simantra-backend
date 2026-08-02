@@ -5,9 +5,14 @@ import { JwtService } from '@nestjs/jwt';
 import { Tenant, TenantTheme, TenantUser } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { PrismaService } from '../prisma/prisma.service';
+import { MailService } from '../mail/mail.service';
 import { toWireUser } from '../common/wire';
 import { ChangePasswordDto, LoginDto } from './dto/auth.dto';
 import { JwtPayload } from './auth.types';
+
+/** Cooldown minimum antar pengiriman email reset untuk user yang sama —
+ *  meredam email-bombing lintas IP (di luar @Throttle per-route). */
+const RESET_EMAIL_COOLDOWN_MS = 60_000;
 
 export interface RequestMeta {
   userAgent?: string;
@@ -19,13 +24,18 @@ type UserWithTenant = TenantUser & { tenant: (Tenant & { theme?: TenantTheme | n
 @Injectable()
 export class AuthService {
   private readonly refreshTtlDays: number;
+  private readonly resetTokenTtlMinutes: number;
+  private readonly frontendBaseUrl: string;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
+    private readonly mail: MailService,
     config: ConfigService,
   ) {
     this.refreshTtlDays = Number(config.get('REFRESH_TTL_DAYS') ?? 7);
+    this.resetTokenTtlMinutes = Number(config.get('RESET_TOKEN_TTL_MINUTES') ?? 60);
+    this.frontendBaseUrl = config.get<string>('FRONTEND_BASE_URL') ?? 'http://localhost:3000';
   }
 
   // ── Login ────────────────────────────────────────────────────────────────
@@ -131,6 +141,80 @@ export class AuthService {
     // Semua sesi lain dimatikan; sesi ini dapat pasangan token baru
     await this.revokeAllForUser(user.id);
     return this.issueTokens(updated, meta);
+  }
+
+  // ── Forgot password (self-service, semua role) ────────────────────────────
+  // Selalu "sukses" dari sudut pandang caller (controller balas pesan generik
+  // apa pun yang terjadi di sini) — anti user-enumeration, sama seperti login().
+  async forgotPassword(email: string): Promise<void> {
+    const user = await this.prisma.tenantUser.findUnique({ where: { email } });
+    if (!user || !user.isActive) return;
+
+    const recent = await this.prisma.passwordResetToken.findFirst({
+      where: { userId: user.id, usedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (recent && Date.now() - recent.createdAt.getTime() < RESET_EMAIL_COOLDOWN_MS) {
+      return;
+    }
+
+    // Token outstanding lama tidak boleh nyangkut kalau user minta reset lagi
+    await this.prisma.passwordResetToken.updateMany({
+      where: { userId: user.id, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+
+    const rawToken = randomBytes(48).toString('base64url');
+    await this.prisma.passwordResetToken.create({
+      data: {
+        userId: user.id,
+        tokenHash: this.hashToken(rawToken),
+        expiresAt: new Date(Date.now() + this.resetTokenTtlMinutes * 60 * 1000),
+      },
+    });
+
+    const resetUrl = `${this.frontendBaseUrl}/auth/reset-password?token=${rawToken}`;
+    await this.mail.sendPasswordResetEmail(user.email, resetUrl);
+  }
+
+  // ── Reset password lewat token dari email ─────────────────────────────────
+  async resetPassword(rawToken: string, newPassword: string) {
+    const row = await this.prisma.passwordResetToken.findUnique({
+      where: { tokenHash: this.hashToken(rawToken) },
+      include: { user: { include: { tenant: true } } },
+    });
+
+    const invalid = () =>
+      new BadRequestException({
+        statusCode: 400,
+        message: 'Link reset tidak valid atau sudah kedaluwarsa',
+        error: 'INVALID_RESET_TOKEN',
+      });
+
+    if (!row || row.usedAt || row.expiresAt < new Date()) {
+      throw invalid();
+    }
+
+    const user = row.user;
+    if (!user.isActive) {
+      throw invalid();
+    }
+
+    await this.prisma.tenantUser.update({
+      where: { id: user.id },
+      data: {
+        passwordHash: await argon2.hash(newPassword),
+        mustChangePassword: false,
+      },
+    });
+    await this.prisma.passwordResetToken.update({
+      where: { id: row.id },
+      data: { usedAt: new Date() },
+    });
+    await this.revokeAllForUser(user.id);
+
+    const redirectTo = user.role === 'superadmin' ? '/auth/login' : `/${user.tenant?.subdomain}/login`;
+    return { message: 'Password berhasil direset', redirect_to: redirectTo };
   }
 
   // ── Profil sendiri (pengganti fetchUserProfile auth-context.tsx) ─────────

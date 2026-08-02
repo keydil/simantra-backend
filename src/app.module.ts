@@ -19,6 +19,7 @@ import { MustChangePasswordGuard } from './common/guards/must-change-password.gu
 import { RolesGuard } from './common/guards/roles.guard';
 import { TenantScopeGuard } from './common/guards/tenant-scope.guard';
 import { HealthController } from './health.controller';
+import { MailModule } from './mail/mail.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { PublicModule } from './public/public.module';
 import { QueueEntriesModule } from './queue-entries/queue-entries.module';
@@ -42,6 +43,7 @@ import { UsersModule } from './users/users.module';
     ]),
     PrismaModule,
     StorageModule,
+    MailModule,
     AuthModule,
     UsersModule,
     RealtimeModule,
