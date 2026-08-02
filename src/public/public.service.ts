@@ -78,7 +78,7 @@ export class PublicService {
     return toWireEntry(entry);
   }
 
-  /** RPC count_public_queue_position_ahead. */
+  /** RPC count_public_queue_position_ahead + estimasi waktu tunggu. */
   async getPosition(id: string) {
     const entry = await this.prisma.queueEntry.findFirst({
       where: { id, tenant: { isActive: true } },
@@ -92,7 +92,10 @@ export class PublicService {
         enteredAt: { lt: entry.enteredAt },
       },
     });
-    return { ahead };
+    return {
+      ahead,
+      estimated_wait_minutes: await this.estimateWaitMinutes(entry.queueId, ahead),
+    };
   }
 
   /** RPC get_public_queue. */
@@ -151,6 +154,41 @@ export class PublicService {
   }
 
   // ── Internal ─────────────────────────────────────────────────────────────
+  /**
+   * Estimasi = jumlah antrean di depan × rata-rata waktu layanan NYATA layanan
+   * ini (analytics_daily 14 hari terakhir, tertimbang jumlah entry selesai) —
+   * bukan queues.estimated_service_time_minutes yang cuma angka config manual
+   * admin. Null = belum ada histori sama sekali (tenant/layanan baru); frontend
+   * menampilkan "Estimasi belum tersedia", JANGAN diam-diam jatuh ke angka
+   * config supaya tidak menyajikan tebakan sebagai data.
+   *
+   * Asumsi 1 loket serial — jumlah loket paralel belum diperhitungkan.
+   */
+  private async estimateWaitMinutes(queueId: string, ahead: number): Promise<number | null> {
+    if (ahead === 0) return 0;
+
+    const since = new Date();
+    since.setDate(since.getDate() - 14);
+    const rows = await this.prisma.analyticsDaily.findMany({
+      where: {
+        queueId,
+        date: { gte: since },
+        averageServiceTimeMinutes: { not: null },
+        completedEntries: { gt: 0 },
+      },
+      select: { averageServiceTimeMinutes: true, completedEntries: true },
+    });
+    if (rows.length === 0) return null;
+
+    let sum = 0;
+    let weight = 0;
+    for (const r of rows) {
+      sum += Number(r.averageServiceTimeMinutes) * r.completedEntries;
+      weight += r.completedEntries;
+    }
+    return weight > 0 ? Math.round(ahead * (sum / weight)) : null;
+  }
+
   private async assertTenantActive(slug: string) {
     const tenant = await this.prisma.tenant.findFirst({
       where: { subdomain: slug, isActive: true },
