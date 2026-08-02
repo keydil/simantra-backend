@@ -1,15 +1,94 @@
-import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { AuthUser } from '../auth/auth.types';
 import { toWireAnalytics } from '../common/wire';
 import { PrismaService } from '../prisma/prisma.service';
-import { AnalyticsRangeQueryDto, QueueAnalyticsQueryDto } from './dto/analytics.dto';
+import { AnalyticsRangeQueryDto, QueueAnalyticsQueryDto, TenantsSummaryQueryDto } from './dto/analytics.dto';
+
+/** Sama dgn cap aggregateRange — jaring pengaman rentang query lintas-tenant. */
+const MAX_SUMMARY_RANGE_DAYS = 366;
 
 @Injectable()
 export class AnalyticsService {
   private readonly logger = new Logger(AnalyticsService.name);
 
   constructor(private readonly prisma: PrismaService) {}
+
+  /** Perbandingan lintas-instansi (superadmin) — agregat analytics_daily
+   *  dikelompokkan per tenant, dihitung dari baris yg SUDAH ter-agregasi
+   *  (bukan raw queue_entries), jadi murah dipanggil kapan saja. */
+  async tenantsSummary(query: TenantsSummaryQueryDto) {
+    const from = new Date(query.from);
+    const to = new Date(query.to);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || to < from) {
+      throw new BadRequestException('Rentang tanggal tidak valid');
+    }
+    const rangeDays = (to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24);
+    if (rangeDays > MAX_SUMMARY_RANGE_DAYS) {
+      throw new BadRequestException(`Rentang perbandingan maksimal ${MAX_SUMMARY_RANGE_DAYS} hari`);
+    }
+
+    const rows = await this.prisma.analyticsDaily.findMany({
+      where: { date: { gte: from, lte: to }, tenant: { isActive: true } },
+      include: { tenant: { select: { id: true, name: true, subdomain: true } } },
+    });
+
+    interface Acc {
+      tenantName: string;
+      tenantSlug: string;
+      total: number;
+      completed: number;
+      noShow: number;
+      cancelled: number;
+      weightedServiceSum: number;
+      weightedServiceWeight: number;
+    }
+    const byTenant = new Map<string, Acc>();
+    for (const r of rows) {
+      let acc = byTenant.get(r.tenantId);
+      if (!acc) {
+        acc = {
+          tenantName: r.tenant.name,
+          tenantSlug: r.tenant.subdomain,
+          total: 0,
+          completed: 0,
+          noShow: 0,
+          cancelled: 0,
+          weightedServiceSum: 0,
+          weightedServiceWeight: 0,
+        };
+        byTenant.set(r.tenantId, acc);
+      }
+      acc.total += r.totalEntries;
+      acc.completed += r.completedEntries;
+      acc.noShow += r.noShowEntries;
+      acc.cancelled += r.cancelledEntries;
+      if (r.averageServiceTimeMinutes != null && r.completedEntries > 0) {
+        acc.weightedServiceSum += Number(r.averageServiceTimeMinutes) * r.completedEntries;
+        acc.weightedServiceWeight += r.completedEntries;
+      }
+    }
+
+    return Array.from(byTenant.entries())
+      .map(([tenantId, acc]) => ({
+        tenant_id: tenantId,
+        tenant_name: acc.tenantName,
+        tenant_slug: acc.tenantSlug,
+        total_entries: acc.total,
+        completed_entries: acc.completed,
+        no_show_entries: acc.noShow,
+        cancelled_entries: acc.cancelled,
+        average_service_minutes:
+          acc.weightedServiceWeight > 0
+            ? Math.round((acc.weightedServiceSum / acc.weightedServiceWeight) * 100) / 100
+            : null,
+        attendance_rate:
+          acc.completed + acc.noShow > 0
+            ? Math.round((acc.completed / (acc.completed + acc.noShow)) * 10000) / 100
+            : null,
+      }))
+      .sort((a, b) => b.total_entries - a.total_entries);
+  }
 
   /** Padanan analyticsQueries.getByTenantAndDate. */
   async listByTenant(tenantId: string, query: AnalyticsRangeQueryDto) {

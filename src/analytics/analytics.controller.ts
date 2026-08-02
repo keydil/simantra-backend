@@ -3,7 +3,12 @@ import { AuthUser } from '../auth/auth.types';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { AnalyticsService } from './analytics.service';
-import { AggregateDto, AnalyticsRangeQueryDto, QueueAnalyticsQueryDto } from './dto/analytics.dto';
+import {
+  AggregateDto,
+  AnalyticsRangeQueryDto,
+  QueueAnalyticsQueryDto,
+  TenantsSummaryQueryDto,
+} from './dto/analytics.dto';
 
 @Controller()
 export class AnalyticsController {
@@ -25,6 +30,15 @@ export class AnalyticsController {
     @CurrentUser() caller: AuthUser,
   ) {
     return this.analytics.listByQueue(queueId, query, caller);
+  }
+
+  /** Perbandingan lintas-instansi — TANPA :tenantId di path (datanya secara
+   *  desain lintas-tenant), jadi cukup dikunci role, sama seperti aggregate
+   *  di bawah. */
+  @Roles('superadmin')
+  @Get('analytics/tenants-summary')
+  tenantsSummary(@Query() query: TenantsSummaryQueryDto) {
+    return this.analytics.tenantsSummary(query);
   }
 
   /** Trigger manual agregasi (testing/backfill) — cron tetap jalan otomatis. */

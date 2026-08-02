@@ -91,12 +91,21 @@ export class QueueEntriesService {
       this.prisma.queueEntry.count({ where }),
       this.prisma.queueEntry.groupBy({ by: ['status'], where, _count: true }),
       this.prisma.queueEntry.groupBy({ by: ['queueId'], where, _count: true }),
-      this.prisma.$queryRaw<{ avg_minutes: number | null }[]>`
-        SELECT avg(EXTRACT(EPOCH FROM (completed_at - started_at)) / 60.0) AS avg_minutes
+      // Waktu layanan (dilayani→selesai) & waktu tunggu (masuk→dipanggil) dalam
+      // satu query — dua FILTER terpisah krn cakupannya beda: waktu layanan
+      // cuma valid utk entry yg SUDAH selesai, waktu tunggu berlaku utk semua
+      // entry yg sudah sempat dipanggil apa pun status akhirnya.
+      this.prisma.$queryRaw<{ avg_service_minutes: number | null; avg_wait_minutes: number | null }[]>`
+        SELECT
+          avg(EXTRACT(EPOCH FROM (completed_at - started_at)) / 60.0)
+            FILTER (WHERE status = 'completed' AND started_at IS NOT NULL AND completed_at IS NOT NULL)
+            AS avg_service_minutes,
+          avg(EXTRACT(EPOCH FROM (started_at - entered_at)) / 60.0)
+            FILTER (WHERE started_at IS NOT NULL)
+            AS avg_wait_minutes
         FROM queue_entries
         WHERE tenant_id = ${tenantId}::uuid
           AND entered_at >= ${from} AND entered_at <= ${to}
-          AND status = 'completed' AND started_at IS NOT NULL AND completed_at IS NOT NULL
           AND (${queueId}::uuid IS NULL OR queue_id = ${queueId}::uuid)`,
       this.prisma.queue.findMany({
         where: { tenantId },
@@ -108,7 +117,9 @@ export class QueueEntriesService {
     const byStatusMap = Object.fromEntries(
       ALL_STATUSES.map((s) => [s, byStatus.find((b) => b.status === s)?._count ?? 0]),
     ) as Record<QueueEntryStatus, number>;
-    const avgMinutes = avgRows[0]?.avg_minutes;
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    const avgServiceMinutes = avgRows[0]?.avg_service_minutes;
+    const avgWaitMinutes = avgRows[0]?.avg_wait_minutes;
 
     return {
       data: rows.map(toWireRecapEntry),
@@ -122,7 +133,8 @@ export class QueueEntriesService {
           queue_name: queueNameById.get(b.queueId) ?? 'Tidak diketahui',
           count: b._count,
         })),
-        average_service_minutes: avgMinutes != null ? Math.round(avgMinutes * 100) / 100 : null,
+        average_service_minutes: avgServiceMinutes != null ? round2(avgServiceMinutes) : null,
+        average_wait_minutes: avgWaitMinutes != null ? round2(avgWaitMinutes) : null,
         total_entries: count,
       },
     };

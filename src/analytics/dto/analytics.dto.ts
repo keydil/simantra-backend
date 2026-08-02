@@ -20,6 +20,16 @@ export class QueueAnalyticsQueryDto {
   days?: number;
 }
 
+/** Perbandingan lintas-instansi (superadmin) — from/to wajib, beda dari
+ *  AnalyticsRangeQueryDto yg opsional (dipakai kasus per-tenant). */
+export class TenantsSummaryQueryDto {
+  @IsDateString()
+  from!: string;
+
+  @IsDateString()
+  to!: string;
+}
+
 export class AggregateDto {
   /** Tanggal (YYYY-MM-DD) yang diagregasi; default = kemarin. */
   @IsOptional()
