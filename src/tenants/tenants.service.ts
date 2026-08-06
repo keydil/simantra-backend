@@ -297,7 +297,7 @@ export class TenantsService {
    * dihapus setelah baris DB berhasil diperbarui.
    */
   async uploadVideo(tenantId: string, filename: string) {
-    const url = this.storage.videoUrl(filename);
+    const url = await this.storage.commitVideo(filename);
     const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { id: true } });
     if (!tenant) {
       await this.storage.deleteByUrl(url); // bersihkan file yatim
