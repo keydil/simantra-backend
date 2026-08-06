@@ -25,7 +25,10 @@ interface JoinPayload {
 
 @WebSocketGateway({
   namespace: '/realtime',
-  cors: { origin: process.env.CORS_ORIGIN?.split(',') ?? true, credentials: true },
+  // .trim() sama seperti CORS REST di main.ts — Socket.IO default-nya
+  // polling dulu (XHR lintas origin), jadi CORS salah = socket tidak pernah
+  // nyambung dan frontend diam-diam turun ke polling tanpa pesan error.
+  cors: { origin: process.env.CORS_ORIGIN?.split(',').map((o) => o.trim()) ?? true, credentials: true },
 })
 export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection {
   private readonly logger = new Logger(RealtimeGateway.name);

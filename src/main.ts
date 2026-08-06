@@ -10,13 +10,23 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   app.setGlobalPrefix('api/v1');
+  // Di belakang proxy platform (Railway/Vercel) semua request terlihat datang
+  // dari satu IP proxy. Tanpa ini req.ip salah, sehingga throttler mem-bucket
+  // SEMUA pengguna jadi satu (satu peminta abusif ikut mengunci yang lain) dan
+  // metadata IP di audit login jadi tidak berguna.
+  app.set('trust proxy', 1);
+  // Railway mengirim SIGTERM saat redeploy — tanpa ini PrismaService
+  // .onModuleDestroy tidak pernah jalan dan koneksi DB ditinggal menggantung.
+  app.enableShutdownHooks();
   // File upload (foto guest book, logo tenant) — di luar prefix API
   app.use(
     '/uploads',
     express.static(resolve(process.env.STORAGE_LOCAL_DIR ?? './uploads')),
   );
   app.enableCors({
-    origin: process.env.CORS_ORIGIN?.split(',') ?? true,
+    // .trim(): "a.com, b.com" (dengan spasi setelah koma) kalau tidak
+    // di-trim menghasilkan origin " b.com" yang tidak akan pernah cocok.
+    origin: process.env.CORS_ORIGIN?.split(',').map((o) => o.trim()) ?? true,
     credentials: true,
   });
   app.use(cookieParser());
