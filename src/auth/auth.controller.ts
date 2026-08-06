@@ -60,7 +60,9 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const raw = dto.refresh_token ?? req.cookies?.[REFRESH_COOKIE];
-    res.clearCookie(REFRESH_COOKIE, { path: '/api/v1/auth' });
+    // Opsi HARUS sama persis dengan saat cookie di-set, kalau tidak browser
+    // menolak menghapusnya (mis. sameSite/secure/domain yang beda).
+    res.clearCookie(REFRESH_COOKIE, this.auth.refreshCookieOptions);
     return this.auth.logout(raw);
   }
 
@@ -104,13 +106,7 @@ export class AuthController {
   }
 
   private setRefreshCookie(res: Response, token: string) {
-    res.cookie(REFRESH_COOKIE, token, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      path: '/api/v1/auth',
-      maxAge: this.auth.refreshCookieMaxAgeMs,
-    });
+    res.cookie(REFRESH_COOKIE, token, this.auth.refreshCookieOptions);
   }
 
   private meta(req: Request): RequestMeta {

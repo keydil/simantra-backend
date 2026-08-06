@@ -1,9 +1,10 @@
 import { createHash, randomBytes } from 'crypto';
-import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Tenant, TenantTheme, TenantUser } from '@prisma/client';
 import * as argon2 from 'argon2';
+import type { CookieOptions } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { toWireUser } from '../common/wire';
@@ -14,6 +15,12 @@ import { JwtPayload } from './auth.types';
  *  meredam email-bombing lintas IP (di luar @Throttle per-route). */
 const RESET_EMAIL_COOLDOWN_MS = 60_000;
 
+/** Cookie refresh dibatasi ke prefix route auth saja — tidak ikut terkirim
+ *  di setiap request API biasa. Dipakai bersama saat set & clear. */
+const REFRESH_COOKIE_PATH = '/api/v1/auth';
+
+type SameSite = 'lax' | 'strict' | 'none';
+
 export interface RequestMeta {
   userAgent?: string;
   ip?: string;
@@ -23,9 +30,13 @@ type UserWithTenant = TenantUser & { tenant: (Tenant & { theme?: TenantTheme | n
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   private readonly refreshTtlDays: number;
   private readonly resetTokenTtlMinutes: number;
   private readonly frontendBaseUrl: string;
+  private readonly cookieSameSite: SameSite;
+  private readonly cookieSecure: boolean;
+  private readonly cookieDomain?: string;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -36,6 +47,26 @@ export class AuthService {
     this.refreshTtlDays = Number(config.get('REFRESH_TTL_DAYS') ?? 7);
     this.resetTokenTtlMinutes = Number(config.get('RESET_TOKEN_TTL_MINUTES') ?? 60);
     this.frontendBaseUrl = config.get<string>('FRONTEND_BASE_URL') ?? 'http://localhost:3000';
+
+    // Cookie dibuat env-driven supaya pindah antara "frontend & backend beda
+    // domain" (mis. Vercel + Railway → butuh SameSite=None) dan "satu domain
+    // induk" (mis. app./api. → cukup Lax) hanya perlu ubah env, bukan kode.
+    const rawSameSite = (config.get<string>('COOKIE_SAMESITE') ?? 'lax').toLowerCase();
+    if (!['lax', 'strict', 'none'].includes(rawSameSite)) {
+      this.logger.warn(`COOKIE_SAMESITE='${rawSameSite}' tidak dikenal, pakai 'lax'`);
+    }
+    this.cookieSameSite = (['lax', 'strict', 'none'].includes(rawSameSite) ? rawSameSite : 'lax') as SameSite;
+
+    const rawSecure = config.get<string>('COOKIE_SECURE');
+    let secure = rawSecure !== undefined ? rawSecure === 'true' : process.env.NODE_ENV === 'production';
+    // Browser menolak mentah-mentah SameSite=None yang tidak Secure, dan
+    // gagalnya senyap — paksa benar daripada sesi mati tanpa jejak.
+    if (this.cookieSameSite === 'none' && !secure) {
+      this.logger.warn('COOKIE_SAMESITE=none mewajibkan Secure — COOKIE_SECURE dipaksa true');
+      secure = true;
+    }
+    this.cookieSecure = secure;
+    this.cookieDomain = config.get<string>('COOKIE_DOMAIN') || undefined;
   }
 
   // ── Login ────────────────────────────────────────────────────────────────
@@ -270,5 +301,21 @@ export class AuthService {
 
   get refreshCookieMaxAgeMs() {
     return this.refreshTtlDays * 24 * 60 * 60 * 1000;
+  }
+
+  /**
+   * Opsi cookie refresh — satu sumber untuk set MAUPUN clear. Browser hanya
+   * mau menghapus cookie kalau opsinya identik (kecuali maxAge/expires yang
+   * memang diabaikan clearCookie), jadi keduanya wajib memakai objek ini.
+   */
+  get refreshCookieOptions(): CookieOptions {
+    return {
+      httpOnly: true,
+      sameSite: this.cookieSameSite,
+      secure: this.cookieSecure,
+      path: REFRESH_COOKIE_PATH,
+      ...(this.cookieDomain ? { domain: this.cookieDomain } : {}),
+      maxAge: this.refreshCookieMaxAgeMs,
+    };
   }
 }
